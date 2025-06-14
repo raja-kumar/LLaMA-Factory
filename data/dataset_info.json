@@ -714,5 +714,13 @@
       "prompt": "content"
     },
     "folder": "python"
+  },
+  "flowers_4_shot":{
+    "file_name": "/app/shared_data/raja/oxford_flowers/sft_data/sft_dataset_cot_False.json",
+  "formatting": "sharegpt",
+  "columns": {
+    "messages": "conversations",
+    "images": "images"
+  }
   }
 }
