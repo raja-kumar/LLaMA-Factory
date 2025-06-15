@@ -722,5 +722,14 @@
     "messages": "conversations",
     "images": "images"
   }
+  },
+  "flowers_base":{
+    "file_name": "/app/shared_data/raja/oxford_flowers/sft_data/sft_data_base_train_cot_False.json",
+  "formatting": "sharegpt",
+  "columns": {
+    "messages": "conversations",
+    "images": "images"
   }
+  }
+
 }

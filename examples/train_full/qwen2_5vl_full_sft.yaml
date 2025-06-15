@@ -16,18 +16,19 @@ deepspeed: examples/deepspeed/ds_z3_config.json
 
 ### dataset
 # dataset: mllm_demo,identity,alpaca_en_demo
-dataset: flowers_4_shot
+# dataset: flowers_4_shot
+dataset: flowers_base
 template: qwen2_vl
 cutoff_len: 2048
-max_samples: 1000
+max_samples: 2000
 overwrite_cache: true
 preprocessing_num_workers: 16
 dataloader_num_workers: 0
 
 ### output
-output_dir: saves/flowers_4_shot/qwen2_vl-2b/full/sft
+output_dir: saves/flowers_base/qwen2_vl-2b/full/sft
 logging_steps: 10
-save_steps: 500
+save_steps: 200
 plot_loss: true
 overwrite_output_dir: true
 save_only_model: false
