@@ -37,6 +37,8 @@ import multiprocessing as mp
 from argparse import ArgumentParser
 from multiprocessing import Pool
 
+import random
+random.seed(21)
 # from utils import get_cat_name_from_json
 
 def plot_images(image_paths):
@@ -61,9 +63,10 @@ def plot_images(image_paths):
 
 
 # model path and model base
-# model_path = "/app/saves/flowers_4_shot/qwen2_vl-2b/full/sft/checkpoint-306/"  # after RL
-model_path = "Qwen/Qwen2-VL-2B-Instruct"
-# model_path = "/app/saves/flowers_base/qwen2_vl-2b/full/sft/checkpoint-1308/"  # after SFT
+# model_path = "/app/saves/flowers_4_shot/qwen2_vl-2b/full/sft/checkpoint-306/"  # after SFT
+# model_path = "Qwen/Qwen2-VL-2B-Instruct"
+# model_path = "/app/saves/flowers_base/qwen2_vl-2b/full/sft/checkpoint-400/"  # after SFT
+model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base/checkpoint-400"
 model_base = "Qwen/Qwen2-VL-2B-Instruct"  # original Qwen2-VL
 
 ## Qwen2.5
@@ -73,6 +76,15 @@ model_base = "Qwen/Qwen2-VL-2B-Instruct"  # original Qwen2-VL
 # model_base = "Qwen/Qwen2.5-VL-3B-Instruct"  
 
 # categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
+
+
+# ==== configurations ====
+
+use_cat_list = False
+zero_shot = True
+eval_type = "rft"  # "sft" or "baseline" or rft
+zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_base_val.json"
+# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_val.json"  # zero shot json file
 
 def run(rank, world_size):
 
@@ -98,11 +110,6 @@ def run(rank, world_size):
     model = model.to(torch.device(rank))
     model = model.eval()
 
-    ## set these flags
-    use_cat_list = True
-    zero_shot = True
-    eval_type = "baseline"  # "sft" or "baseline" or rft
-
     ### get categories name
     with open('./val_data/oxford_flowers.txt', 'r') as file:
         lines = file.readlines()
@@ -113,7 +120,6 @@ def run(rank, world_size):
     # print(categories)   ### 对应 0-101
 
     val_set = []
-    zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_test.json"
 
     
     if zero_shot:
@@ -141,6 +147,7 @@ def run(rank, world_size):
     print(len(val_set))
     # print(val_set[0])
 
+    random.shuffle(val_set)
     # val_set = val_set[:5]  # for test
 
     rank = rank
@@ -231,7 +238,7 @@ def run(rank, world_size):
                 response_lower = response.replace(' ','').replace('_','').lower()
                 # judgement
                 # print("response_lower: ", response_lower)
-                # print("image_cate: ", image_cate)
+                # print("\033[93m" + "image_cate" + image_cate + ":" + "\033[0m")
                 if image_cate in response_lower:
                     right_count += 1
                 else:
