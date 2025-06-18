@@ -1,0 +1,121 @@
+import json
+from openai import OpenAI
+from typing import Dict, List, Tuple
+import os
+from tqdm import tqdm
+import sys
+
+class AccuracyEvaluator:
+    def __init__(self, api_key: str):
+        # self.client = OpenAI(api_key=api_key)
+        self.client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+        
+    def _check_match(self, groundtruth: str, predictions: str) -> Tuple[bool, bool, str]:
+        """Use LLM to determine if any prediction matches groundtruth."""
+        # predictions_str = ", ".join([f'"{p}"' for p in predictions])
+        prompt = f"""You are evaluating fine-grained image classification results.
+Given:
+- Groundtruth category: "{groundtruth}"
+- Predicted categories: [{predictions}]
+
+Check if the groundtruth matches any prediction. The strings need not match exactly but they must refer to the same specific category (not just broad class).
+Respond with:
+1. "True" or "False" if groundtruth matches the first prediction
+2. "True" or "False" if groundtruth matches any of the predictions
+3. Brief explanation"""
+
+        response = self.client.chat.completions.create(
+            model="google/gemini-2.5-flash-lite-preview-06-17",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0,
+            max_tokens=100
+        )
+        
+        result = response.choices[0].message.content.split("\n")
+        top1_match = "true" in result[0].lower() and "false" not in result[0].lower()
+        top5_match = "true" in result[1].lower() and "false" not in result[1].lower()
+        explanation = result[2].strip()
+
+        # print("result:", result)
+        # print("top1_match:", top1_match)
+        # print("top5_match:", top5_match)
+        # print("explanation:", explanation)
+
+        return top1_match, top5_match, explanation
+
+    # ...rest of the code remains the same...
+
+    def evaluate_predictions(self, data: Dict) -> Dict:
+        """Evaluate predictions and compute top-1 and top-5 accuracy metrics."""
+        total = len(data)
+        correct_top1 = 0
+        correct_top5 = 0
+        results = {}
+
+        for image_id, item in tqdm(data.items()):
+            groundtruth = item["groundtruth"]
+            # Parse predictions from the answer string, assuming format "[pred1, pred2, ...]"
+            predictions = item["answer"]
+            # predictions_str = item["answer"].strip("[]").split(",")
+            # predictions = [p.strip() for p in predictions_str]
+            
+            # # Ensure we have up to 5 predictions
+            # predictions = predictions[:5]
+            
+            top1_match, top5_match, explanation = self._check_match(groundtruth, predictions)
+            
+            results[image_id] = {
+                "groundtruth": groundtruth,
+                "predictions": predictions,
+                "top1_correct": top1_match,
+                "top5_correct": top5_match,
+                "explanation": explanation
+            }
+            
+            if top1_match:
+                correct_top1 += 1
+            if top5_match:
+                correct_top5 += 1
+
+        return {
+            "top1_accuracy": correct_top1 / total,
+            "top5_accuracy": correct_top5 / total,
+            "total_samples": total,
+            "correct_top1": correct_top1,
+            "correct_top5": correct_top5,
+            "detailed_results": results
+        }
+
+def main(output_file: str = "predictions.json"):
+    # Load API key from environment variable
+    api_key = os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise ValueError("Please set OPENAI_API_KEY environment variable")
+
+    # Initialize evaluator
+    evaluator = AccuracyEvaluator(api_key)
+    
+    # Load predictions
+    with open(output_file, "r") as f:
+        predictions = json.load(f)
+    
+    # Evaluate predictions
+    results = evaluator.evaluate_predictions(predictions)
+    
+    # Print results
+    print(f"\nTop-1 Accuracy: {results['top1_accuracy']:.2%}")
+    print(f"Top-5 Accuracy: {results['top5_accuracy']:.2%}")
+    print(f"Correct predictions (Top-1): {results['correct_top1']}/{results['total_samples']}")
+    print(f"Correct predictions (Top-5): {results['correct_top5']}/{results['total_samples']}")
+    
+    # Save detailed results
+    file_name = output_file.replace(".json", "_evaluation.json")
+    with open(file_name, "w") as f:
+        json.dump(results, f, indent=2)
+
+if __name__ == "__main__":
+    output_file = sys.argv[1]
+    main(output_file)

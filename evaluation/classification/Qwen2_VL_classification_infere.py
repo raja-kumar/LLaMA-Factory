@@ -65,28 +65,44 @@ def plot_images(image_paths):
 # model path and model base
 # model_path = "/app/saves/flowers_4_shot/qwen2_vl-2b/full/sft/checkpoint-306/"  # after SFT
 # model_path = "Qwen/Qwen2-VL-2B-Instruct"
-# model_path = "/app/saves/flowers_base/qwen2_vl-2b/full/sft/checkpoint-400/"  # after SFT
-model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base/checkpoint-400"
-model_base = "Qwen/Qwen2-VL-2B-Instruct"  # original Qwen2-VL
+# model_path = "/app/saved_models/LLaMA-Factory/saves/flowers_base/qwen2_vl-2b/full/sft/checkpoint-200"  # after SFT
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base/checkpoint-1308"
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-1308"
+# model_base = "Qwen/Qwen2-VL-2B-Instruct"  # original Qwen2-VL
 
 ## Qwen2.5
 
-# model_path = "Qwen/Qwen2.5-VL-3B-Instruct"  
+model_path = "Qwen/Qwen2.5-VL-3B-Instruct"
+# model_path = "Qwen/Qwen2.5-VL-7B-Instruct"
 # model_path = "/app/saves/flowers_4_shot/qwen2_5_vl_3b/full/sft/checkpoint-306/"  # after SFT
-# model_base = "Qwen/Qwen2.5-VL-3B-Instruct"  
-
+model_base = "Qwen/Qwen2.5-VL-3B-Instruct"
+# model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
 # categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
 
 
 # ==== configurations ====
 
-use_cat_list = False
+use_cat_list = True
 zero_shot = True
 eval_type = "rft"  # "sft" or "baseline" or rft
 zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_base_val.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_val.json"  # zero shot json file
+# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_test.json"  # zero shot json file
+
+output_path = f"./output/{eval_type}/"
+model_name = model_path.split("/")[-1]  # model name
+data_name = zero_shot_json_path.split("/")[-1].split(".")[0]  # data name
+output_file = f"{model_name}_{data_name}_{use_cat_list}.json"  # output file name
+
+if not os.path.exists(output_path):
+    os.makedirs(output_path)
+
+output_file_path = os.path.join(output_path, output_file)
+
+output_data = {}
 
 def run(rank, world_size):
+
+    local_output_data = {}
 
     if "Qwen2.5" in model_base:
 
@@ -147,8 +163,9 @@ def run(rank, world_size):
     print(len(val_set))
     # print(val_set[0])
 
+    random.seed(21)
     random.shuffle(val_set)
-    # val_set = val_set[:5]  # for test
+    # val_set = val_set[:10]  # for test
 
     rank = rank
     world_size = world_size
@@ -171,14 +188,18 @@ def run(rank, world_size):
             image_cate = categories[image_cate]   
         # plot_images([image_path])
 
+        # temp = "Please identify the species of the plant based on the image."
+        temp = "output the top five most likely species names in the image. Even if you are sure about the answer, output top 5 categories."
+        answer_format = "[category 1, category 2, catefory 3, category 4, category 5]"
+
         if use_cat_list:
             question = (
-            "This is an image containing a plant. Please identify the species of the plant based on the image.\n"
-            f"the species of the plant belongs to below category list {categories}.\n"
-            "answer strictly from the category list.\n"
+            f"This is an image containing a plant. {temp}\n"
+            f"the species of the plant strictly belongs to below category list {categories}.\n"
+            "output strictly from the category list.\n"
             "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags."
             "The output answer format should be as follows:\n"
-            "<think> ... </think> <answer>species name</answer>\n"
+            f"<think> ... </think> <answer>{answer_format}</answer>\n"
             "Please strictly follow the format."
             )
         else:
@@ -221,7 +242,7 @@ def run(rank, world_size):
         inputs = inputs.to(model.device)
         
         # Inference: Generation of the output
-        generated_ids = model.generate(**inputs, max_new_tokens=1024, use_cache=True)
+        generated_ids = model.generate(**inputs, max_new_tokens=1024, use_cache=True, temperature=1.1, do_sample=True)
         generated_ids_trimmed = [
             out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
         ]
@@ -245,36 +266,40 @@ def run(rank, world_size):
                     error_count += 1
             else:
                 # For other cases, keep the original parsing logic
+                reasoning = re.search(r"<think>(.*?)</think>", response)
+                reasoning_content = reasoning.group(1) if reasoning else ""
                 match = re.search(r"<answer>(.*?)</answer>", response)
+                if not match:
+                    match = re.search(r"<answer>\n(.*?)</answer>", response)
+                if not match:
+                    match = re.search(r"<answer>\n(.*?)\n</answer>", response)
                 answer_content = match.group(1)
+
+                image_id = image_path.split("/")[-1].split(".")[0]
+
+                local_output_data[image_id] = {
+                    "groundtruth": image_cate,
+                    "reasoning": reasoning_content,
+                    "answer": answer_content
+                }
+
                 image_cate = image_cate.replace(' ','').replace('_','').lower()
                 answer_content = answer_content.replace(' ','').replace('_','').lower()
                 # judgement
-                if image_cate in answer_content or answer_content in image_cate:
+                # print(YELLOW + "image_path: " + image_path + RESET)
+                # print(YELLOW + "image_cate: " + image_cate + RESET)
+                if image_cate in answer_content:
+                    # print(GREEN + "correct: " + response + RESET)
                     right_count += 1
                 else:
+                    # print(RED + "Error: " + response + RESET)
                     error_count += 1
         except Exception as e:
+            print(RED + "Error in processing response: " + response + RESET)
             error_count += 1
-        
-        # try:
-        #     match = re.search(r"<answer>(.*?)</answer>", response)
-        #     answer_content = match.group(1)
-        #     # print(image_cate, answer_content)
-        #     image_cate = image_cate.replace(' ','').replace('_','').lower()
-        #     answer_content = answer_content.replace(' ','').replace('_','').lower()
-        #     # judgement
-        #     if image_cate in answer_content or answer_content in image_cate or image_cate in response:
-        #         # print('yes')
-        #         right_count += 1
-        #         # logger.info('Local Right Number: ' + str(right_count))
-        #     else:
-        #         # print('no')
-        #         error_count+=1
-        # except Exception as e:
-        #     error_count+=1
-            
-    return [error_count, right_count]
+
+    # print(output_data)        
+    return [error_count, right_count, local_output_data]
 
 def main():
     multiprocess = torch.cuda.device_count() >= 2
@@ -295,6 +320,8 @@ def main():
                         ' Right Number: ' + str(result_lists[i][1]))
             global_count_error += int(result_lists[i][0])
             global_count_right = global_count_right + result_lists[i][1]
+
+            output_data.update(result_lists[i][2])  # merge local output data
             
         logger.info('Error number: ' + str(global_count_error))  
         logger.info('Total Right Number: ' + str(global_count_right))
@@ -303,3 +330,8 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+    # if output_data:
+    with open(output_file_path, 'w') as f:
+        json.dump(output_data, f, indent=4)
+    logger.info(f"Output saved to {output_file_path}")
