@@ -18,6 +18,7 @@ torch.manual_seed(1234)
 
 from transformers import Qwen2VLForConditionalGeneration, AutoTokenizer, AutoProcessor, Qwen2_5_VLForConditionalGeneration
 from qwen_vl_utils import process_vision_info
+from datetime import datetime
 
 # 定义颜色的ANSI代码
 RED = '\033[91m'
@@ -59,6 +60,51 @@ def plot_images(image_paths):
     plt.tight_layout()
     plt.show()
 
+def extract_choice(text):
+    # 1. Clean and normalize text
+    text = text.upper()  # Convert to uppercase
+    text = re.sub(r'\s+', ' ', text)  # Normalize spaces
+
+    # 2. Choice should not have uppercase letters before or after
+    choices = re.findall(r'(?<![A-Z])([A-Z])(?=[\.\,\?\!\:\;]|$)', text)
+
+    if not choices:
+        return None
+
+    # 3. If only one choice, return it directly
+    if len(choices) == 1:
+        return choices[0]
+
+    # 4. If multiple choices, use heuristic rules
+    choice_scores = {choice: 0 for choice in choices}
+
+    # 4.1 Keywords around choices get points
+    keywords = [
+        '答案', '选择', '正确', '是', '对',
+        'answer', 'correct', 'choose', 'select', 'right',
+        '认为', '应该', '觉得', 'think', 'believe', 'should'
+    ]
+
+    # Get context for each choice (20 chars before and after)
+    for choice in choices:
+        pos = text.find(choice)
+        context = text[max(0, pos-20):min(len(text), pos+20)]
+
+        # Add points for keywords
+        for keyword in keywords:
+            if keyword.upper() in context:
+                choice_scores[choice] += 1
+
+        # Add points if choice is near the end (usually final answer)
+        if pos > len(text) * 0.7:  # In last 30% of text
+            choice_scores[choice] += 2
+
+        # Add points if followed by punctuation
+        if pos < len(text) - 1 and text[pos+1] in '。.!！,，':
+            choice_scores[choice] += 1
+
+    # Return highest scoring choice
+    return max(choice_scores.items(), key=lambda x: x[1])[0]
 
 
 
@@ -75,32 +121,32 @@ def plot_images(image_paths):
 
 # model_path = "Qwen/Qwen2.5-VL-3B-Instruct"
 # model_path = "Qwen/Qwen2.5-VL-7B-Instruct"
-# model_path = "/app/saves/flowers_4_shot/qwen2_5_vl_3b/full/sft/checkpoint-306/"  # after SFT
+# model_path = "/app/saves/flowers_4_shot/qwen2_5_vl_3b/full/sft/checkpoint-306"  # after SFT
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-500"
+model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-291"
 # model_base = "Qwen/Qwen2.5-VL-3B-Instruct"
-model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-291"
 model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
 # categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
 
 
 # ==== configurations ====
 
-use_cat_list = False
 zero_shot = True
-eval_type = "rft_mcq"  # "sft" or everything else
+eval_type = "rft"  # "sft" or everything else
 predict_top_5 = False  # top k for evaluation, default is 5
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_base_val.json"
-zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_test.json"
+
+# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_val.json"
+zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_new_test.json"
 
 output_path = f"./output/{eval_type}/"
 
 if "checkpoint" in model_path:
-    model_name = model_path.split("/")[-2] + "_" + model_path.split("/")[-1] # use checkpoint name
+    model_name = model_path.split("/")[-2]  # use checkpoint name
 else:
     model_name = model_path.split("/")[-1]  # model name
 
 data_name = zero_shot_json_path.split("/")[-1].split(".")[0]  # data name
-output_file = f"{model_name}_{data_name}_{use_cat_list}.json"  # output file name
+output_file = f"{model_name}_{data_name}.json"  # output file name
 
 if not os.path.exists(output_path):
     os.makedirs(output_path)
@@ -148,83 +194,42 @@ def run(rank, world_size):
     val_set = []
 
     
-    if zero_shot:
-        with open(zero_shot_json_path, 'r') as f:
-            predictions = json.load(f)
-        
-        for item in predictions:
-            image_path = item['image_path']
-            image_label = item['solution']
-            image_label = re.search(r"<answer>(.*?)</answer>", image_label).group(1)
-            image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/oxford_flowers/jpg/", 
-                            "/app/shared_data/raja/oxford_flowers/jpg/")
-            val_set.append({image_path: image_label})
-    else:
-        ### get validation data
-        pth_file_path = './val_data/oxford_flowers.pth'
-        predictions = torch.load(pth_file_path)
 
-        for item in predictions:
-            for k,v in item.items():
-                k = k.replace("/mnt/petrelfs/liuziyu/LLM_Memory/SimplyRetrieve/CLIP-Cls/data/oxford_flowers/jpg/", 
-                                "/app/shared_data/raja/oxford_flowers/jpg/")
-                val_set.append({k:int(v['label'])})
+    with open(zero_shot_json_path, 'r') as f:
+        predictions = json.load(f)
     
-    print(len(val_set))
-    # print(val_set[0])
-
     random.seed(21)
-    random.shuffle(val_set)
-    # val_set = val_set[:5]  # for test
+    random.shuffle(predictions)
 
+    print(len(predictions))
+
+    # predictions = predictions[:5]  # limit to 1000 for testing
     rank = rank
     world_size = world_size
     import math
-    split_length = math.ceil(len(val_set)/world_size)
+    split_length = math.ceil(len(predictions)/world_size)
     logger.info("Split Chunk Length:" + str(split_length))
-    split_images = val_set[int(rank*split_length) : int((rank+1)*split_length)]
+    split_images = predictions[int(rank*split_length) : int((rank+1)*split_length)]
     logger.info(len(split_images))
 
-    ### 遍历 val 中的所有图片
     error_count = 0
     right_count = 0
-    for image in tqdm(split_images): 
-        ### 获取图片信息
-        for k,v in image.items():
-            image_path = k
-            image_cate = v
+
+    for item in tqdm(split_images):
+        image_path = item['image_path']
+        image_prompt = item["problem"]
+        image_label = item['solution']
+        # image_label = re.search(r"<answer>(.*?)</answer>", image_label).group(1)
+        image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/oxford_flowers/jpg/", 
+                        "/app/shared_data/raja/oxford_flowers/jpg/")
+        # val_set.append({image_path: image_label})
         
         if (not zero_shot):
             image_cate = categories[image_cate]   
-        # plot_images([image_path])
-
-        # temp = "Please identify the species of the plant based on the image."
-        if predict_top_5:
-            temp = "output the top five most likely species names in the image. Even if you are sure about the answer, output top 5 categories."
-            answer_format = "[category 1, category 2, catefory 3, category 4, category 5]"
-        else:
-            temp = "output the most likely species name in the image."
-            answer_format = "species name"
-
-        if use_cat_list:
-            question = (
-            f"This is an image containing a flower. {temp}\n"
-            f"the species of the plant strictly belongs to below category list {categories}.\n"
-            "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags."
-            "The output answer format should be as follows:\n"
-            f"<think> ... </think> <answer>{answer_format}</answer>\n"
-            "Please strictly follow the format."
-            )
-        else:
-            question = (
-            "This is an image containing a flower plant. Please identify the species of the flower based on the image.\n"
-            "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags."
-            "The output answer format should be as follows:\n"
-            "<think> ... </think> <answer>species name</answer>\n"
-            "Please strictly follow the format."
-            )
 
         # print(RED + question + RESET)
+
+        question = image_prompt
     
         image_path = image_path
         query = "<image>\n"+question
@@ -289,35 +294,43 @@ def run(rank, world_size):
                 else:
                     error_count += 1
             else:
-                # For other cases, keep the original parsing logic
-                reasoning = re.search(r"<think>(.*?)</think>", response)
-                reasoning_content = reasoning.group(1) if reasoning else ""
-                match = re.search(r"<answer>(.*?)</answer>", response)
-                if not match:
-                    match = re.search(r"<answer>\n(.*?)</answer>", response)
-                if not match:
-                    match = re.search(r"<answer>\n(.*?)\n</answer>", response)
-                answer_content = match.group(1)
+                # print(YELLOW + "Processing response: " + response + RESET)
+                # print(GREEN + "Image Label: " + image_label + RESET)
+                sol_match = re.search(r'<answer>(.*?)</answer>', image_label)
+                # print(GREEN + "Solution Match: " + str(sol_match) + RESET)
+                ground_truth = sol_match.group(1).strip() if sol_match else image_label.strip()
+                has_choices = extract_choice(ground_truth)
+                # print(GREEN + "Has Choices: " + str(has_choices) + RESET)
+                correct_choice = has_choices.upper() if has_choices else image_label.strip()
+                # print(GREEN + "Correct Choice: " + correct_choice + RESET)
 
+                # Extract answer from content if it has think/answer tags
+                content_match = re.search(r'<answer>(.*?)</answer>', response, re.DOTALL)
+                # print(GREEN + "Content Match: " + str(content_match) + RESET)
+                student_answer = content_match.group(1).strip() if content_match else response.strip()
+                student_choice = extract_choice(student_answer)
+                # print(GREEN + "Student Choice: " + str(student_choice) + RESET)
+                if student_choice:
+                    if student_choice == correct_choice:
+                        right_count += 1
+                    else:
+                        error_count += 1
+                else:
+                    error_count += 1
+
+                reasoning = re.search(r"<think>(.*?)</think>", response)
+                # print(GREEN + "Reasoning Match: " + str(reasoning) + RESET)
+                reasoning_content = reasoning.group(1) if reasoning else ""
+                # print(GREEN + "Reasoning Content: " + reasoning_content + RESET)
                 image_id = image_path.split("/")[-1].split(".")[0]
 
                 local_output_data[image_id] = {
-                    "groundtruth": image_cate,
+                    "groundtruth": correct_choice,
                     "reasoning": reasoning_content,
-                    "answer": answer_content
+                    "answer": student_choice
                 }
 
-                image_cate = image_cate.replace(' ','').replace('_','').lower()
-                answer_content = answer_content.replace(' ','').replace('_','').lower()
-                # judgement
-                # print(YELLOW + "image_path: " + image_path + RESET)
-                # print(YELLOW + "image_cate: " + image_cate + RESET)
-                if image_cate in answer_content:
-                    # print(GREEN + "correct: " + response + RESET)
-                    right_count += 1
-                else:
-                    # print(RED + "Error: " + response + RESET)
-                    error_count += 1
+                # print(GREEN + image_id + "local_output_data: " + str(local_output_data[image_id]) + RESET)
         except Exception as e:
             print(RED + "Error in processing response: " + response + RESET)
             error_count += 1
