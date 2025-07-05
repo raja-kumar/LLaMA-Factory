@@ -121,14 +121,12 @@ def extract_choice(text):
 ## Qwen2.5
 
 # model_path = "Qwen/Qwen2.5-VL-3B-Instruct"
-# model_path = "Qwen/Qwen2.5-VL-7B-Instruct"
+model_path = "Qwen/Qwen2.5-VL-7B-Instruct"
 # model_path = "/app/saves/flowers_4_shot/qwen2_5_vl_3b/full/sft/checkpoint-306"  # after SFT
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-500"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-291"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
-model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_hard_examples/checkpoint-200"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_describe/checkpoint-870"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_describe/checkpoint-400"
+# model_base = "Qwen/Qwen2.5-VL-3B-Instruct"
 model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
 # categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
 
@@ -136,15 +134,12 @@ model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
 # ==== configurations ====
 
 zero_shot = True
-eval_type = "rft_mcq"  # "sft" or everything else
+eval_type = "passK"  # "sft" or everything else
 predict_top_5 = False  # top k for evaluation, default is 5
 
-zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_val.json"
+# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_val.json"
 # zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_new_test.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_train.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/hard_subsample_base_train.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_val_describe.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_new_test_describe.json"
+zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_train.json"
 
 output_path = f"./output/{eval_type}/"
 
@@ -191,7 +186,7 @@ def run(rank, world_size):
     model = model.eval()
 
     ### get categories name
-    with open('./val_data/oxford_flowers.txt', 'r') as file:
+    with open('/app/evaluation/classification/val_data/oxford_flowers.txt', 'r') as file:
         lines = file.readlines()
     categories = []
     for line in lines:
@@ -219,6 +214,7 @@ def run(rank, world_size):
     logger.info("Split Chunk Length:" + str(split_length))
     split_images = predictions[int(rank*split_length) : int((rank+1)*split_length)]
     logger.info(len(split_images))
+    split_images = split_images[:1]  # limit to 1000 for testing
 
     error_count = 0
     right_count = 0
@@ -267,20 +263,38 @@ def run(rank, world_size):
         )
         inputs = inputs.to(model.device)
         
+        # inputs = {
+        #     k: v.repeat(16, 1) if k != "pixel_values" else v.repeat(16, 1, 1, 1) 
+        #     for k, v in inputs.items()
+        # }
+
+        generation_args = {
+            "max_new_tokens": 1024,
+            "temperature": 1.1,
+            "top_p": 0.95,
+            "do_sample": True,
+            "num_return_sequences": 16,
+            "repetition_penalty": 1.1,
+        }
         # Inference: Generation of the output
         if predict_top_5:
             generated_ids = model.generate(**inputs, max_new_tokens=1024, use_cache=True, temperature=1.1, do_sample=True)
         else:
-            generated_ids = model.generate(**inputs, max_new_tokens=1024, use_cache=True)
+            generated_ids = model.generate(**inputs, **generation_args, use_cache=True)
         
-        generated_ids_trimmed = [
-            out_ids[len(in_ids) :] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-        ]
-        response = processor.batch_decode(
-            generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        # generated_ids_trimmed = [
+        #     out_ids[len(in_ids) :] for in_ids, out_ids  in zip(inputs.input_ids, generated_ids)
+        # ]
+
+        responses = processor.batch_decode(
+            generated_ids, skip_special_tokens=True, clean_up_tokenization_spaces=False
         )
-        response = response[0]
         
+        # response = response[0]
+
+        for i, response in enumerate(responses):
+            print(f"\n--- Response {i+1} ---\n{response.strip()}\n")
+        # print("response", response)
         # print("\033[92m" + response + "\033[0m")
 
         try:
@@ -332,29 +346,12 @@ def run(rank, world_size):
                 reasoning_content = reasoning.group(1) if reasoning else ""
                 # print(GREEN + "Reasoning Content: " + reasoning_content + RESET)
                 image_id = image_path.split("/")[-1].split(".")[0]
+
                 local_output_data[image_id] = {
                     "groundtruth": correct_choice,
                     "reasoning": reasoning_content,
                     "answer": student_choice
                 }
-                if ("describe" in zero_shot_json_path or "describe" in model_path):
-                    # For describe task, we use the image_id as the key
-                    describe_match = re.search(r'<describe>(.*?)</describe>', response, re.DOTALL)
-                    if describe_match:
-                        describe_content = describe_match.group(1).strip()
-                    else:
-                        describe_content = ""
-                    
-                    rethink_match = re.search(r'<rethink>(.*?)</rethink>', response, re.DOTALL)
-                    if rethink_match:
-                        rethink_content = rethink_match.group(1).strip()
-                    else:
-                        rethink_content = ""
-                    
-                    local_output_data[image_id]["describe"] = describe_content
-                    local_output_data[image_id]["rethink"] = rethink_content
-
-                
 
                 # print(GREEN + image_id + "local_output_data: " + str(local_output_data[image_id]) + RESET)
         except Exception as e:
@@ -394,6 +391,6 @@ def main():
 if __name__ == "__main__":
     main()
 
-    with open(output_file_path, 'w') as f:
-        json.dump(output_data, f, indent=4)
-    logger.info(f"Output saved to {output_file_path}")
+    # with open(output_file_path, 'w') as f:
+    #     json.dump(output_data, f, indent=4)
+    # logger.info(f"Output saved to {output_file_path}")

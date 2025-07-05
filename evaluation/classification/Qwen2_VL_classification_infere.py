@@ -69,6 +69,7 @@ def plot_images(image_paths):
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base/checkpoint-1308"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-1308"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_mcq/checkpoint-1302"
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_mcq/checkpoint-400"  # after GRPO
 # model_base = "Qwen/Qwen2-VL-2B-Instruct"  # original Qwen2-VL
 
 ## Qwen2.5
@@ -77,8 +78,10 @@ def plot_images(image_paths):
 # model_path = "Qwen/Qwen2.5-VL-7B-Instruct"
 # model_path = "/app/saves/flowers_4_shot/qwen2_5_vl_3b/full/sft/checkpoint-306/"  # after SFT
 # model_base = "Qwen/Qwen2.5-VL-3B-Instruct"
-model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-291"
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_describe/checkpoint-600"
+mdoel_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_describe/checkpoint-400"
 model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
 # categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
 
@@ -175,7 +178,7 @@ def run(rank, world_size):
 
     random.seed(21)
     random.shuffle(val_set)
-    # val_set = val_set[:5]  # for test
+    # val_set = val_set[:2]  # for test
 
     rank = rank
     world_size = world_size
@@ -223,6 +226,15 @@ def run(rank, world_size):
             "<think> ... </think> <answer>species name</answer>\n"
             "Please strictly follow the format."
             )
+
+            if "describe" in model_path:
+                question = """ This is an image containing a flower or flower plant. Please identify the species of the flower based on the image. This is a fine-grained image classification task so answer fine-grained categories.
+                            You should first describes the image in as much detail as possible, then you should reason about the most likely answers and then rethink about whatever information you have gathered so far to check for consistency and finally provide the user with the answer.
+                            The image description, reasoning process, rethinking process and answer are enclosed within <describe></describe>, <think> </think>, <rethink></rethink> and <answer> </answer> tags, respectively, i.e.,
+                            <describe> detailed image description here </describe>, <think> reasoning process here </think>, <rethink> review to find incosistencies in your reasoning if any <rethink>, <answer> final answer </answer>. only include the category name in the <answer> tag. strictly follow the format.
+                            Please be careful before answering as these are difficult question. Look carefully at the image features and describe it in as much details as possible. During the reasoning process, you should first think about the most likely answers. 
+                            If you are unsure about the answer, ask questions or rethink about the knowledge you need to find the correct answer. 
+                            Based on this knowledge think again and review your answer. If you are sure about the your answer then output your final answer in <answer></answer> otherwise keep asking more questions until you come to the right answer and you are confident."""
 
         # print(RED + question + RESET)
     
@@ -290,13 +302,13 @@ def run(rank, world_size):
                     error_count += 1
             else:
                 # For other cases, keep the original parsing logic
-                reasoning = re.search(r"<think>(.*?)</think>", response)
-                reasoning_content = reasoning.group(1) if reasoning else ""
-                match = re.search(r"<answer>(.*?)</answer>", response)
+                reasoning = re.search(r"<think>(.*?)</think>", response, re.DOTALL)
+                reasoning_content = reasoning.group(1).strip() if reasoning else ""
+                match = re.search(r"<answer>(.*?)</answer>", response, re.DOTALL)
                 if not match:
-                    match = re.search(r"<answer>\n(.*?)</answer>", response)
+                    match = re.search(r"<answer>\n(.*?)</answer>", response, re.DOTALL)
                 if not match:
-                    match = re.search(r"<answer>\n(.*?)\n</answer>", response)
+                    match = re.search(r"<answer>\n(.*?)\n</answer>", response, re.DOTALL)
                 answer_content = match.group(1)
 
                 image_id = image_path.split("/")[-1].split(".")[0]
@@ -306,6 +318,23 @@ def run(rank, world_size):
                     "reasoning": reasoning_content,
                     "answer": answer_content
                 }
+
+                if ("describe" in model_path):
+                    # For describe task, we use the image_id as the key
+                    describe_match = re.search(r'<describe>(.*?)</describe>', response, re.DOTALL)
+                    if describe_match:
+                        describe_content = describe_match.group(1).strip()
+                    else:
+                        describe_content = ""
+                    
+                    rethink_match = re.search(r'<rethink>(.*?)</rethink>', response, re.DOTALL)
+                    if rethink_match:
+                        rethink_content = rethink_match.group(1).strip()
+                    else:
+                        rethink_content = ""
+                    
+                    local_output_data[image_id]["describe"] = describe_content
+                    local_output_data[image_id]["rethink"] = rethink_content
 
                 image_cate = image_cate.replace(' ','').replace('_','').lower()
                 answer_content = answer_content.replace(' ','').replace('_','').lower()

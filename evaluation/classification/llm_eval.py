@@ -4,6 +4,7 @@ from typing import Dict, List, Tuple
 import os
 from tqdm import tqdm
 import sys
+import re
 
 class AccuracyEvaluator:
     def __init__(self, api_key: str):
@@ -22,12 +23,14 @@ class AccuracyEvaluator:
             prompt = f"""You are evaluating fine-grained image classification results.
     Given:
     - Groundtruth category: "{groundtruth}"
-    - Predicted category: {predictions}
+    - LLM prediction: {predictions}
 
     Check if the groundtruth matches the prediction. The strings need not match exactly but they must refer to the same specific fine-grained category, not just broad class.
+    If the prediction outputs a name but says "not sure" or "uncertain", or needs more information, consider it as correct if that output is correct.
     Respond with:
-    1. "True" or "False" if groundtruth matches the prediction
-    2. Brief explanation"""
+    1. "True" or "False" if groundtruth matches the prediction in <answer></answer> tag. i.e <answer>answer here (True/False)</answer>
+    2. Brief explanation in <explanation></explanation> tag. i.e <explanation>Explanation here</explanation>
+    """
 
             response = self.client.chat.completions.create(
                 model="google/gemini-2.5-flash-lite-preview-06-17",
@@ -36,11 +39,25 @@ class AccuracyEvaluator:
                 max_tokens=200
             )
             
-            result = response.choices[0].message.content.split("\n")
-            result = [item for item in result if item] 
-            top1_match = "true" in result[0].lower() and "false" not in result[0].lower()
-            explanation = result[1].strip()
-
+            # result = response.choices[0].message.content.split("\n")
+            # result = [item for item in result if item] 
+            # top1_match = "true" in result[0].lower() and "false" not in result[0].lower()
+            result = response.choices[0].message.content
+            # print("----------")
+            # print("response:", result)
+            # print(re.findall(r'<answer>(.*?)</answer>', result, re.DOTALL))
+            # print("----------")
+            top1_match = re.findall(r'<answer>(.*?)</answer>', result, re.DOTALL)[0].strip()
+            if (top1_match.lower() == "true"):
+                top1_match = True
+            else:
+                top1_match = False
+            try:
+                explanation = re.findall(r'<explanation>(.*?)</explanation>', result, re.DOTALL)[0].strip()
+            except IndexError:
+                explanation = "No explanation provided"
+                print(result)
+            
             return top1_match, explanation
         else:
             # predictions_str = ", ".join([f'"{p}"' for p in predictions])
@@ -98,7 +115,7 @@ class AccuracyEvaluator:
                 correct_top1 += 1
             if top5_match:
                 correct_top5 += 1
-
+            
         return {
             "top1_accuracy": correct_top1 / total,
             "top5_accuracy": correct_top5 / total,
