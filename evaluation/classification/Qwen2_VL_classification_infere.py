@@ -77,12 +77,12 @@ def plot_images(image_paths):
 # model_path = "Qwen/Qwen2.5-VL-3B-Instruct"
 # model_path = "Qwen/Qwen2.5-VL-7B-Instruct"
 # model_path = "/app/saves/flowers_4_shot/qwen2_5_vl_3b/full/sft/checkpoint-306/"  # after SFT
-# model_base = "Qwen/Qwen2.5-VL-3B-Instruct"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-291"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_describe/checkpoint-600"
 # mdoel_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_describe/checkpoint-400"
-model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_and_hard/checkpoint-400"
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_and_hard/checkpoint-400"
+model_path = "/app/saved_models/vrft/pets/Qwen2_5-VL-7B-Instruct_GRPO_pets_base_mcq/checkpoint-400"
 model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
 # categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
 
@@ -90,13 +90,22 @@ model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
 # ==== configurations ====
 
 use_cat_list = False
-zero_shot = True
-eval_type = "rft_mcq"  # "sft" or everything else
+eval_type = "rft"  # "sft" or everything else
 predict_top_5 = False  # top k for evaluation, default is 5
-zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_base_val.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_test.json"
 
-dataset = "oxford_flowers"  # dataset name, used for output path
+DATA_ROOT = "/app/shared_data/oxford-iiit-pet"
+split = "base_val"  # "base_val" or "new_test" or "new_val"
+
+zero_shot_json_path = os.path.join(DATA_ROOT, "zero_shot", f"subsample_{split}.json")
+
+# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_base_val.json"
+# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_test.json"
+# zero_shot_json_path = "/app/shared_data/raja/oxford-iiit-pets/zero_shot/subsample_base_val.json"
+# zero_shot_json_path = "/app/shared_data/raja/oxford-iiit-pets/zero_shot/subsample_new_test.json"
+
+# dataset = "oxford_flowers"  # dataset name, used for output path
+dataset = DATA_ROOT.split("/")[-1]  # dataset name, used for output path
+
 output_path = f"./output/{dataset}/{eval_type}/"
 # output_path = f"./output/{eval_type}/"
 
@@ -142,69 +151,44 @@ def run(rank, world_size):
     model = model.to(torch.device(rank))
     model = model.eval()
 
-    ### get categories name
-    with open('./val_data/oxford_flowers.txt', 'r') as file:
-        lines = file.readlines()
-    categories = []
-    for line in lines:
-        categories.append(line.strip())
-    # print(len(categories))
-    # print(categories)   ### 对应 0-101
-
-    val_set = []
-
+    with open(zero_shot_json_path, 'r') as f:
+        infer_data = json.load(f)
     
-    if zero_shot:
-        with open(zero_shot_json_path, 'r') as f:
-            predictions = json.load(f)
-        
-        for item in predictions:
-            image_path = item['image_path']
-            image_label = item['solution']
-            image_label = re.search(r"<answer>(.*?)</answer>", image_label).group(1)
-            image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/", 
-                            "/app/shared_data/raja/")
-            val_set.append({image_path: image_label})
-    else:
-        ### get validation data
-        pth_file_path = './val_data/oxford_flowers.pth'
-        predictions = torch.load(pth_file_path)
-
-        for item in predictions:
-            for k,v in item.items():
-                k = k.replace("/mnt/petrelfs/liuziyu/LLM_Memory/SimplyRetrieve/CLIP-Cls/data/oxford_flowers/jpg/", 
-                                "/app/shared_data/raja/oxford_flowers/jpg/")
-                val_set.append({k:int(v['label'])})
-    
-    print(len(val_set))
-    # print(val_set[0])
-
     random.seed(21)
-    random.shuffle(val_set)
-    # val_set = val_set[:2]  # for test
+    random.shuffle(infer_data)
+
+    # infer_data = infer_data[:5]
+
+    print(GREEN + "Number of images in infer data: " + str(len(infer_data)) + RESET)
+    
 
     rank = rank
     world_size = world_size
     import math
-    split_length = math.ceil(len(val_set)/world_size)
+    split_length = math.ceil(len(infer_data)/world_size)
     logger.info("Split Chunk Length:" + str(split_length))
-    split_images = val_set[int(rank*split_length) : int((rank+1)*split_length)]
+    split_images = infer_data[int(rank*split_length) : int((rank+1)*split_length)]
     logger.info(len(split_images))
 
-    ### 遍历 val 中的所有图片
+    '''
+    To do:
+        - Load the categories correctly. Add categories list to the question if use_cat_list is True. 
+    '''
+
+    categories = []
+    
+
     error_count = 0
     right_count = 0
-    for image in tqdm(split_images): 
-        ### 获取图片信息
-        for k,v in image.items():
-            image_path = k
-            image_cate = v
-        
-        if (not zero_shot):
-            image_cate = categories[image_cate]   
-        # plot_images([image_path])
+    for item in tqdm(split_images, total=len(split_images), desc=f"Rank {rank} Processing"):
+        image_path = item['image_path']
+        image_label = item['solution']
+        prompt = item['problem']
+        image_label = re.search(r"<answer>(.*?)</answer>", image_label).group(1)
+        image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/", 
+                        "/app/shared_data/")
 
-        # temp = "Please identify the species of the plant based on the image."
+
         if predict_top_5:
             temp = "output the top five most likely species names in the image. Even if you are sure about the answer, output top 5 categories."
             answer_format = "[category 1, category 2, catefory 3, category 4, category 5]"
@@ -222,29 +206,9 @@ def run(rank, world_size):
             "Please strictly follow the format."
             )
         else:
-            question = (
-            "This is an image containing a flower plant. Please identify the species of the flower based on the image.\n"
-            "Output the thinking process in <think> </think> and final answer in <answer> </answer> tags."
-            "The output answer format should be as follows:\n"
-            "<think> ... </think> <answer>species name</answer>\n"
-            "Please strictly follow the format."
-            )
-
-            # question =   " This is an image containing a pet. Please identify the species of the pet based on the image.\nOutput the thinking process in <think> </think> and final answer in <answer> </answer> tags.The output answer format should be as follows:\n<think> ... </think> <answer>species name</answer>\nPlease strictly follow the format. "
-
-
-            if "describe" in model_path:
-                question = """ This is an image containing a flower or flower plant. Please identify the species of the flower based on the image. This is a fine-grained image classification task so answer fine-grained categories.
-                            You should first describes the image in as much detail as possible, then you should reason about the most likely answers and then rethink about whatever information you have gathered so far to check for consistency and finally provide the user with the answer.
-                            The image description, reasoning process, rethinking process and answer are enclosed within <describe></describe>, <think> </think>, <rethink></rethink> and <answer> </answer> tags, respectively, i.e.,
-                            <describe> detailed image description here </describe>, <think> reasoning process here </think>, <rethink> review to find incosistencies in your reasoning if any <rethink>, <answer> final answer </answer>. only include the category name in the <answer> tag. strictly follow the format.
-                            Please be careful before answering as these are difficult question. Look carefully at the image features and describe it in as much details as possible. During the reasoning process, you should first think about the most likely answers. 
-                            If you are unsure about the answer, ask questions or rethink about the knowledge you need to find the correct answer. 
-                            Based on this knowledge think again and review your answer. If you are sure about the your answer then output your final answer in <answer></answer> otherwise keep asking more questions until you come to the right answer and you are confident."""
-
+            question = prompt
         # print(RED + question + RESET)
     
-        image_path = image_path
         query = "<image>\n"+question
         # print(RED+query+RESET)
         
@@ -294,15 +258,15 @@ def run(rank, world_size):
                 image_id = image_path.split("/")[-1].split(".")[0]
 
                 local_output_data[image_id] = {
-                    "groundtruth": image_cate,
+                    "groundtruth": image_label,
                     "reasoning": "", # No reasoning for SFT
                     "answer": response
                 }
 
-                image_cate = image_cate.replace(' ','').replace('_','').lower()
+                image_label = image_label.replace(' ','').replace('_','').lower()
                 response_lower = response.replace(' ','').replace('_','').lower()
 
-                if image_cate in response_lower:
+                if image_label in response_lower:
                     right_count += 1
                 else:
                     error_count += 1
@@ -315,12 +279,13 @@ def run(rank, world_size):
                     match = re.search(r"<answer>\n(.*?)</answer>", response, re.DOTALL)
                 if not match:
                     match = re.search(r"<answer>\n(.*?)\n</answer>", response, re.DOTALL)
+                
                 answer_content = match.group(1)
 
                 image_id = image_path.split("/")[-1].split(".")[0]
 
                 local_output_data[image_id] = {
-                    "groundtruth": image_cate,
+                    "groundtruth": image_label,
                     "reasoning": reasoning_content,
                     "answer": answer_content
                 }
@@ -341,23 +306,10 @@ def run(rank, world_size):
                     
                     local_output_data[image_id]["describe"] = describe_content
                     local_output_data[image_id]["rethink"] = rethink_content
-
-                image_cate = image_cate.replace(' ','').replace('_','').lower()
-                answer_content = answer_content.replace(' ','').replace('_','').lower()
-                # judgement
-                # print(YELLOW + "image_path: " + image_path + RESET)
-                # print(YELLOW + "image_cate: " + image_cate + RESET)
-                if image_cate in answer_content:
-                    # print(GREEN + "correct: " + response + RESET)
-                    right_count += 1
-                else:
-                    # print(RED + "Error: " + response + RESET)
-                    error_count += 1
         except Exception as e:
             print(RED + "Error in processing response: " + response + RESET)
             error_count += 1
         
-    # print(output_data)        
     return [error_count, right_count, local_output_data]
 
 def main():
@@ -384,6 +336,7 @@ def main():
             
         logger.info('Error number: ' + str(global_count_error))  
         logger.info('Total Right Number: ' + str(global_count_right))
+        logger.info("above count holds meaning only for sft eval. IGNORE for other evals.")
     else:
         logger.info("Not enough GPUs")
 

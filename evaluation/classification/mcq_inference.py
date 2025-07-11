@@ -90,34 +90,16 @@ def extract_choice(text):
     return max(choice_scores.items(), key=lambda x: x[1])[0]
 
 
+# ===== model path and model base =====
 
-# model path and model base
-# model_path = "/app/saves/flowers_4_shot/qwen2_vl-2b/full/sft/checkpoint-306/"  # after SFT
-# model_path = "Qwen/Qwen2-VL-2B-Instruct"
-# model_path = "/app/saved_models/LLaMA-Factory/saves/flowers_base/qwen2_vl-2b/full/sft/checkpoint-1308"  # after SFT
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base/checkpoint-1308"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-1308"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_mcq/checkpoint-1302"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_mcq/checkpoint-400"  # after GRPO
-# model_base = "Qwen/Qwen2-VL-2B-Instruct"  # original Qwen2-VL
+MODEL_ROOT = "/app/saved_models/vrft/ckpts"  # root path for saved models
+BASE_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
+EXP_NAME = "Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_1_shot_and_hard_mcq/"  # experiment name for saving models
+CHECKPOINT = "checkpoint-400"  # checkpoint name for saved models
 
-## Qwen2.5
 
-# model_path = "Qwen/Qwen2.5-VL-3B-Instruct"
-# model_path = "Qwen/Qwen2.5-VL-7B-Instruct"
-# model_path = "/app/saves/flowers_4_shot/qwen2_5_vl_3b/full/sft/checkpoint-306"  # after SFT
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-500"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-291"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_hard_examples/checkpoint-200"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_describe/checkpoint-870"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_describe/checkpoint-400"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_and_hard/checkpoint-400"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
-model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_and_hard_mcq/checkpoint-400"
-model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
-# categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
-
+model_path = os.path.join(MODEL_ROOT, f"{EXP_NAME}", CHECKPOINT)  # full path to the model"
+model_base = BASE_MODEL  # base model name
 
 # ==== configurations ====
 
@@ -125,18 +107,15 @@ zero_shot = True
 eval_type = "rft_mcq"  # "sft" or everything else
 predict_top_5 = False  # top k for evaluation, default is 5
 
-zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_val.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_new_test.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_train.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/hard_subsample_base_train.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_val_describe.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_new_test_describe.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_pet/zero_shot/subsample_base_val_mcq.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford-iiit-pet/zero_shot/subsample_new_val_mcq.json"
+if eval_type == "baseline":
+    model_path = BASE_MODEL
 
-## dataset detail
-# dataset = "oxford_pet"  # dataset name, used for output path
-dataset = "oxford_flowers"  # dataset name, used for output path
+# ==== dataset and output paths ====
+DATA_ROOT = "/app/shared_data/"
+dataset = "oxford_flowers"  # folder name for dataset
+split = "new_test"  # split name, can be "base_train", "base_val", "new_test", "new_val" etc.
+
+zero_shot_json_path = f"{DATA_ROOT}/{dataset}/zero_shot_mcq/subsample_{split}.json"
 
 output_path = f"./output/{dataset}/{eval_type}/"
 
@@ -159,11 +138,11 @@ if os.path.exists(output_file_path):
         print("Operation aborted by the user.")
         exit(0)  # Exit the script if the user does not confirm
 
+print(YELLOW + "inference data path " + zero_shot_json_path + RESET)
 print(GREEN + "output path " + output_file_path + RESET)
 output_data = {}
 
 def run(rank, world_size):
-
     local_output_data = {}
 
     if "Qwen2.5" in model_base:
@@ -224,12 +203,12 @@ def run(rank, world_size):
     for item in tqdm(split_images):
         image_path = item['image_path']
         if (not os.path.exists(image_path)):
-            image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/", "/app/shared_data/raja/")
+            image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/", DATA_ROOT)
         image_prompt = item["problem"]
         image_label = item['solution']
         # image_label = re.search(r"<answer>(.*?)</answer>", image_label).group(1)
-        image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/oxford_flowers/jpg/", 
-                        "/app/shared_data/raja/oxford_flowers/jpg/")
+        # image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/oxford_flowers/jpg/", 
+        #                 "/app/shared_data/oxford_flowers/jpg/")
         # val_set.append({image_path: image_label})
         
         if (not zero_shot):
