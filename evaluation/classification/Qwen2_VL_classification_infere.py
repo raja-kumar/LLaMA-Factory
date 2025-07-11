@@ -81,7 +81,8 @@ def plot_images(image_paths):
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-291"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_describe/checkpoint-600"
-mdoel_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_describe/checkpoint-400"
+# mdoel_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_describe/checkpoint-400"
+model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_and_hard/checkpoint-400"
 model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
 # categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
 
@@ -92,10 +93,12 @@ use_cat_list = False
 zero_shot = True
 eval_type = "rft_mcq"  # "sft" or everything else
 predict_top_5 = False  # top k for evaluation, default is 5
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_base_val.json"
-zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_test.json"
+zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_base_val.json"
+# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_test.json"
 
-output_path = f"./output/{eval_type}/"
+dataset = "oxford_flowers"  # dataset name, used for output path
+output_path = f"./output/{dataset}/{eval_type}/"
+# output_path = f"./output/{eval_type}/"
 
 if "checkpoint" in model_path:
     model_name = model_path.split("/")[-2] + "_" + model_path.split("/")[-1] # use checkpoint name
@@ -159,8 +162,8 @@ def run(rank, world_size):
             image_path = item['image_path']
             image_label = item['solution']
             image_label = re.search(r"<answer>(.*?)</answer>", image_label).group(1)
-            image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/oxford_flowers/jpg/", 
-                            "/app/shared_data/raja/oxford_flowers/jpg/")
+            image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/", 
+                            "/app/shared_data/raja/")
             val_set.append({image_path: image_label})
     else:
         ### get validation data
@@ -226,6 +229,9 @@ def run(rank, world_size):
             "<think> ... </think> <answer>species name</answer>\n"
             "Please strictly follow the format."
             )
+
+            # question =   " This is an image containing a pet. Please identify the species of the pet based on the image.\nOutput the thinking process in <think> </think> and final answer in <answer> </answer> tags.The output answer format should be as follows:\n<think> ... </think> <answer>species name</answer>\nPlease strictly follow the format. "
+
 
             if "describe" in model_path:
                 question = """ This is an image containing a flower or flower plant. Please identify the species of the flower based on the image. This is a fine-grained image classification task so answer fine-grained categories.
@@ -350,7 +356,7 @@ def run(rank, world_size):
         except Exception as e:
             print(RED + "Error in processing response: " + response + RESET)
             error_count += 1
-
+        
     # print(output_data)        
     return [error_count, right_count, local_output_data]
 

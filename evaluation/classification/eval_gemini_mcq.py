@@ -117,7 +117,7 @@ def main():
         })
 
         # Add delay to respect rate limits
-        time.sleep(0.5)
+        # time.sleep(0.5)
 
     accuracy = (correct / total) * 100 if total > 0 else 0
 

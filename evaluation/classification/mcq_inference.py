@@ -42,23 +42,6 @@ import random
 random.seed(21)
 # from utils import get_cat_name_from_json
 
-def plot_images(image_paths):
-    num_images = len(image_paths)
-    
-    fig, axes = plt.subplots(1, num_images, figsize=(5 * num_images, 5))
-    
-    for i, image_path in enumerate(image_paths):
-        img = mpimg.imread(image_path)
-        if num_images == 1:
-            ax = axes
-        else:
-            ax = axes[i]
-        ax.imshow(img)
-        ax.set_title(f'Image {i+1}')
-        ax.axis('off')
-    
-    plt.tight_layout()
-    plt.show()
 
 def extract_choice(text):
     # 1. Clean and normalize text
@@ -126,9 +109,12 @@ def extract_choice(text):
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-500"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-291"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
-model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_hard_examples/checkpoint-200"
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_hard_examples/checkpoint-200"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_describe/checkpoint-870"
 # model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_describe/checkpoint-400"
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_and_hard/checkpoint-400"
+# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
+model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_and_hard_mcq/checkpoint-400"
 model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
 # categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
 
@@ -145,8 +131,14 @@ zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsam
 # zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/hard_subsample_base_train.json"
 # zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_base_val_describe.json"
 # zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot_mcq/subsample_new_test_describe.json"
+# zero_shot_json_path = "/app/shared_data/raja/oxford_pet/zero_shot/subsample_base_val_mcq.json"
+# zero_shot_json_path = "/app/shared_data/raja/oxford-iiit-pet/zero_shot/subsample_new_val_mcq.json"
 
-output_path = f"./output/{eval_type}/"
+## dataset detail
+# dataset = "oxford_pet"  # dataset name, used for output path
+dataset = "oxford_flowers"  # dataset name, used for output path
+
+output_path = f"./output/{dataset}/{eval_type}/"
 
 if "checkpoint" in model_path:
     model_name = model_path.split("/")[-2] + "_" + model_path.split("/")[-1]  # use checkpoint name
@@ -161,7 +153,13 @@ if not os.path.exists(output_path):
 
 output_file_path = os.path.join(output_path, output_file)
 
-print(GREEN + "output path" + output_file_path + RESET)
+if os.path.exists(output_file_path):
+    user_input = input(f"The file '{output_file_path}' already exists. Do you want to overwrite it? (yes/no): ").strip().lower()
+    if user_input not in ['yes', 'y']:
+        print("Operation aborted by the user.")
+        exit(0)  # Exit the script if the user does not confirm
+
+print(GREEN + "output path " + output_file_path + RESET)
 output_data = {}
 
 def run(rank, world_size):
@@ -225,6 +223,8 @@ def run(rank, world_size):
 
     for item in tqdm(split_images):
         image_path = item['image_path']
+        if (not os.path.exists(image_path)):
+            image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/", "/app/shared_data/raja/")
         image_prompt = item["problem"]
         image_label = item['solution']
         # image_label = re.search(r"<answer>(.*?)</answer>", image_label).group(1)
@@ -360,7 +360,7 @@ def run(rank, world_size):
         except Exception as e:
             print(RED + "Error in processing response: " + response + RESET)
             error_count += 1
-
+        
     # print(output_data)        
     return [error_count, right_count, local_output_data]
 

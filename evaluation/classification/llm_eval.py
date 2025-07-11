@@ -26,7 +26,6 @@ class AccuracyEvaluator:
     - LLM prediction: {predictions}
 
     Check if the groundtruth matches the prediction. The strings need not match exactly but they must refer to the same specific fine-grained category, not just broad class.
-    If the prediction outputs a name but says "not sure" or "uncertain", or needs more information, consider it as correct if that output is correct.
     Respond with:
     1. "True" or "False" if groundtruth matches the prediction in <answer></answer> tag. i.e <answer>answer here (True/False)</answer>
     2. Brief explanation in <explanation></explanation> tag. i.e <explanation>Explanation here</explanation>
@@ -36,7 +35,7 @@ class AccuracyEvaluator:
                 model="google/gemini-2.5-flash-lite-preview-06-17",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0,
-                max_tokens=200
+                max_tokens=400
             )
             
             # result = response.choices[0].message.content.split("\n")
@@ -115,7 +114,7 @@ class AccuracyEvaluator:
                 correct_top1 += 1
             if top5_match:
                 correct_top5 += 1
-            
+                 
         return {
             "top1_accuracy": correct_top1 / total,
             "top5_accuracy": correct_top5 / total,

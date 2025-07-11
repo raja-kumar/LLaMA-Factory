@@ -36,5 +36,6 @@ def calculate_accuracy(json_file_path):
     return accuracy
 
 # Use the function
-json_file_path = "./output/rft_mcq/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_hard_examples_checkpoint-200_subsample_new_test.json"
+# json_file_path = "./output/rft_mcq/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_hard_examples_checkpoint-200_subsample_new_test.json"
+json_file_path = "./output/oxford_flowers/rft_mcq/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_checkpoint-300_subsample_base_val.json"
 calculate_accuracy(json_file_path)
