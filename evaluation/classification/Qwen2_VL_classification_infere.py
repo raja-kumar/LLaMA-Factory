@@ -60,54 +60,35 @@ def plot_images(image_paths):
     plt.show()
 
 
+# ===== model path and model base =====
+
+MODEL_ROOT = "/app/saved_models/vrft/pets"  # root path for saved models
+BASE_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
+EXP_NAME = "Qwen2_5-VL-7B-Instruct_GRPO_pets_base_and_hard_mcq"  # experiment name for saving models
+CHECKPOINT = "checkpoint-400"  # checkpoint name for saved models
 
 
-# model path and model base
-# model_path = "/app/saves/flowers_4_shot/qwen2_vl-2b/full/sft/checkpoint-306/"  # after SFT
-# model_path = "Qwen/Qwen2-VL-2B-Instruct"
-# model_path = "/app/saved_models/LLaMA-Factory/saves/flowers_base/qwen2_vl-2b/full/sft/checkpoint-1308"  # after SFT
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base/checkpoint-1308"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-1308"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_mcq/checkpoint-1302"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2-VL-2B-Instruct_GRPO_flowers_base_mcq/checkpoint-400"  # after GRPO
-# model_base = "Qwen/Qwen2-VL-2B-Instruct"  # original Qwen2-VL
-
-## Qwen2.5
-
-# model_path = "Qwen/Qwen2.5-VL-3B-Instruct"
-# model_path = "Qwen/Qwen2.5-VL-7B-Instruct"
-# model_path = "/app/saves/flowers_4_shot/qwen2_5_vl_3b/full/sft/checkpoint-306/"  # after SFT
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq/checkpoint-300"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_updated_reward/checkpoint-291"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_describe/checkpoint-600"
-# mdoel_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_describe/checkpoint-400"
-# model_path = "/app/saved_models/vrft/ckpts/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_4_shot_and_hard/checkpoint-400"
-model_path = "/app/saved_models/vrft/pets/Qwen2_5-VL-7B-Instruct_GRPO_pets_base_mcq/checkpoint-400"
-model_base = "Qwen/Qwen2.5-VL-7B-Instruct"
-# categories_json = "../data/oxford_flowers/idx_2_class.json"  # categories json file
-
+model_path = os.path.join(MODEL_ROOT, f"{EXP_NAME}", CHECKPOINT)  # full path to the model"
+model_base = BASE_MODEL  # base model name
 
 # ==== configurations ====
 
-use_cat_list = False
+zero_shot = True
 eval_type = "rft"  # "sft" or everything else
 predict_top_5 = False  # top k for evaluation, default is 5
+use_cat_list = False
 
-DATA_ROOT = "/app/shared_data/oxford-iiit-pet"
-split = "base_val"  # "base_val" or "new_test" or "new_val"
+if eval_type == "baseline":
+    model_path = BASE_MODEL
 
-zero_shot_json_path = os.path.join(DATA_ROOT, "zero_shot", f"subsample_{split}.json")
+# ==== dataset and output paths ====
+DATA_ROOT = "/app/shared_data/"
+dataset = "oxford-iiit-pet"  # oxford_flowers, oxford-iiit-pet
+split = "new_val"  # split name, can be "base_train", "base_val", "new_test", "new_val" etc.
 
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_base_val.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford_flowers/zero_shot/subsample_new_test.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford-iiit-pets/zero_shot/subsample_base_val.json"
-# zero_shot_json_path = "/app/shared_data/raja/oxford-iiit-pets/zero_shot/subsample_new_test.json"
-
-# dataset = "oxford_flowers"  # dataset name, used for output path
-dataset = DATA_ROOT.split("/")[-1]  # dataset name, used for output path
+zero_shot_json_path = f"{DATA_ROOT}/{dataset}/zero_shot/subsample_{split}.json"
 
 output_path = f"./output/{dataset}/{eval_type}/"
-# output_path = f"./output/{eval_type}/"
 
 if "checkpoint" in model_path:
     model_name = model_path.split("/")[-2] + "_" + model_path.split("/")[-1] # use checkpoint name
@@ -290,6 +271,7 @@ def run(rank, world_size):
                     "answer": answer_content
                 }
 
+                # print(local_output_data[image_id])
                 if ("describe" in model_path):
                     # For describe task, we use the image_id as the key
                     describe_match = re.search(r'<describe>(.*?)</describe>', response, re.DOTALL)
