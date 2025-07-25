@@ -69,8 +69,14 @@ def evaluate_response(response: str, ground_truth: str) -> bool:
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data_path", type=str, required=True, help="Path to the JSON dataset file")
-    parser.add_argument("--output_path", type=str, required=True, help="Path to save results")
+    parser.add_argument("--output_path", type=str, required=True, help="Folder to save results")
+
     args = parser.parse_args()
+
+    file_name = args.data_path.split("/")[-1]
+    output_file = os.path.join(args.output_path, file_name)
+    print(f"Output file: {output_file}")
+    os.makedirs(args.output_path, exist_ok=True)
 
     # Initialize OpenAI client
     # client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
@@ -95,7 +101,7 @@ def main():
         
         # Update image path to your local path if needed
         image_path = item["image_path"]
-        image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/", "/app/shared_data/raja/")
+        image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/fgvc_aircraft/", "/app/shared_data/raja/")
         if not os.path.exists(image_path):
             print(f"Image not found: {image_path}")
             continue
@@ -129,13 +135,13 @@ def main():
         "detailed_results": results
     }
 
-    with open(args.output_path, 'w') as f:
+    with open(output_file, 'w') as f:
         json.dump(output, f, indent=2)
 
     print(f"Evaluation completed!")
     print(f"Accuracy: {accuracy:.2f}%")
     print(f"Correct predictions: {correct}/{total}")
-    print(f"Results saved to: {args.output_path}")
+    print(f"Results saved to: {output_file}")
 
 if __name__ == "__main__":
     main()

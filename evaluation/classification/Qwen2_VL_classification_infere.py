@@ -62,9 +62,9 @@ def plot_images(image_paths):
 
 # ===== model path and model base =====
 
-MODEL_ROOT = "/app/saved_models/vrft/pets"  # root path for saved models
+MODEL_ROOT = "/app/saved_models/vrft/CUB_200_2011/"  # root path for saved models
 BASE_MODEL = "Qwen/Qwen2.5-VL-7B-Instruct"
-EXP_NAME = "Qwen2_5-VL-7B-Instruct_GRPO_pets_base_and_hard_mcq"  # experiment name for saving models
+EXP_NAME = "Qwen2_5-VL-7B-Instruct_GRPO_cub_base_1_shot_mcq"  # experiment name for saving models
 CHECKPOINT = "checkpoint-400"  # checkpoint name for saved models
 
 
@@ -82,9 +82,9 @@ if eval_type == "baseline":
     model_path = BASE_MODEL
 
 # ==== dataset and output paths ====
-DATA_ROOT = "/app/shared_data/"
-dataset = "oxford-iiit-pet"  # oxford_flowers, oxford-iiit-pet
-split = "new_val"  # split name, can be "base_train", "base_val", "new_test", "new_val" etc.
+DATA_ROOT = "/app/shared_data/raja/"
+dataset = "CUB_200_2011"  # oxford_flowers, oxford-iiit-pet, CUB_200_2011
+split = "base_val"  # split name, can be "base_train", "base_val", "new_test", "new_val" etc.
 
 zero_shot_json_path = f"{DATA_ROOT}/{dataset}/zero_shot/subsample_{split}.json"
 
@@ -105,6 +105,23 @@ output_file_path = os.path.join(output_path, output_file)
 
 print(GREEN + "output path" + output_file_path + RESET)
 output_data = {}
+
+### this is a temporary fix, will be removed later
+one_shot_train_file = f"{DATA_ROOT}/{dataset}/fewshot/1_shots_base_train_mcq.json"
+with open(one_shot_train_file, 'r') as f:
+    one_shot_data = json.load(f)
+
+def check_impath_in_training_data(image_path):
+    """
+    Check if the image path is in the one-shot training data.
+    """
+    image_id = image_path.split("/")[-1].split(".")[0]
+    for item in one_shot_data:
+        if item['image_path'].split("/")[-1].split(".")[0] == image_id:
+            return True
+    return False
+
+### end of temporary fix
 
 def run(rank, world_size):
 
@@ -138,7 +155,7 @@ def run(rank, world_size):
     random.seed(21)
     random.shuffle(infer_data)
 
-    # infer_data = infer_data[:5]
+    # infer_data = infer_data[:10]
 
     print(GREEN + "Number of images in infer data: " + str(len(infer_data)) + RESET)
     
@@ -164,10 +181,17 @@ def run(rank, world_size):
     for item in tqdm(split_images, total=len(split_images), desc=f"Rank {rank} Processing"):
         image_path = item['image_path']
         image_label = item['solution']
+
+        ### temporary fix for one-shot training data
+        if check_impath_in_training_data(image_path):
+            logger.info(f"Skipping image {image_path} as it is in the one-shot training data.")
+            continue
+
+        ### end of temporary fix
         prompt = item['problem']
         image_label = re.search(r"<answer>(.*?)</answer>", image_label).group(1)
         image_path = image_path.replace("/home/raja/OVOD/git_files/VLM-COT/data/", 
-                        "/app/shared_data/")
+                        DATA_ROOT)
 
 
         if predict_top_5:

@@ -2,12 +2,12 @@ import json
 from collections import defaultdict
 
 
-input_data_path = "/data2/raja/oxford_flowers/zero_shot_mcq/subsample_base_train.json"
+input_data_path = "/app/shared_data/raja/CUB_200_2011/zero_shot/subsample_base_train_mcq.json"
 # output_data_path = "./output/rft_mcq/Qwen2.5-VL-7B-Instruct_subsample_base_val.json"
 # output_data_path = "./output/rft_mcq/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_subsample_base_val.json"
-output_data_path = "./output/rft_mcq/Qwen2_5-VL-7B-Instruct_GRPO_flowers_base_mcq_checkpoint-300_subsample_base_train.json"
+output_data_path = "./output/CUB_200_2011/rft_mcq/Qwen2_5-VL-7B-Instruct_GRPO_cub_base_mcq_checkpoint-399_subsample_base_train_mcq.json"
 
-hard_data_path = "/data2/raja/oxford_flowers/zero_shot_mcq/hard_subsample_base_train.json"
+# hard_data_path = "/data2/raja/oxford_flowers/zero_shot_mcq/hard_subsample_base_train.json"
 
 # Function to extract category name from problem text given the correct option letter
 def get_category_from_problem(problem_text, answer_letter):
@@ -55,8 +55,8 @@ for input_item in input_data:
                 hard_data.append(input_item)
 
 # Save hard examples to a file
-with open(hard_data_path, 'w') as f:
-    json.dump(hard_data, f, indent=4)
+# with open(hard_data_path, 'w') as f:
+#     json.dump(hard_data, f, indent=4)
 
 # Calculate and display error rates per category
 print("\nError distribution by category:")
